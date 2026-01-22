@@ -1,90 +1,44 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-import numpy as np
 
-st.title("Stock Comparison - Normalized Adjusted Close")
+st.title("Normed 5Y Monthly Returns Comparison")
 
-# Input for two ticker symbols
+# --- Inputs ---
 col1, col2 = st.columns(2)
 with col1:
-    ticker1 = st.text_input("Enter first ticker symbol:", key="ticker1")
+    ticker1 = st.text_input("Ticker 1", value="AAPL")
 with col2:
-    ticker2 = st.text_input("Enter second ticker symbol:", key="ticker2")
+    ticker2 = st.text_input("Ticker 2", value="MSFT")
 
-# Period for last 5 years monthly data
-end_date = datetime.now()
-start_date = end_date - timedelta(days=5*365)
+if st.button("Run analysis"):
+    tickers = [ticker1.strip().upper(), ticker2.strip().upper()]
 
-if ticker1 and ticker2:
-    # Validate and fetch data for ticker 1
-    try:
-        stock1 = yf.Ticker(ticker1)
-        data1 = stock1.history(start=start_date, end=end_date, interval="1mo")
-        if data1.empty:
-            st.error(f"No data found for {ticker1}. Please check the ticker symbol.")
-        else:
-            st.success(f"✓ Valid ticker: {ticker1}")
-    except:
-        st.error(f"Invalid ticker symbol: {ticker1}")
-        data1 = None
-    
-    # Validate and fetch data for ticker 2
-    try:
-        stock2 = yf.Ticker(ticker2)
-        data2 = stock2.history(start=start_date, end=end_date, interval="1mo")
-        if data2.empty:
-            st.error(f"No data found for {ticker2}. Please check the ticker symbol.")
-        else:
-            st.success(f"✓ Valid ticker: {ticker2}")
-        data2 = stock2.history(start=start_date, end=end_date, interval="1mo")
-    except:
-        st.error(f"Invalid ticker symbol: {ticker2}")
-        data2 = None
-    
-    # Plot if both tickers have valid data
-    if data1 is not None and not data1.empty and data2 is not None and not data2.empty:
-        # Normalize adjusted close prices (divide by first value)
-        norm_data1 = data1['Close'] / data1['Close'].iloc[0] * 100
-        norm_data2 = data2['Close'] / data2['Close'].iloc[0] * 100
-        
-        # Align dates by reindexing to common dates
-        common_index = norm_data1.index.union(norm_data2.index)
-        norm_data1 = norm_data1.reindex(common_index).fillna(method='ffill')
-        norm_data2 = norm_data2.reindex(common_index).fillna(method='ffill')
-        
-        # Create the plot
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        ax.plot(norm_data1.index, norm_data1.values, linewidth=2, label=f"{ticker1} (Normalized)")
-        ax.plot(norm_data2.index, norm_data2.values, linewidth=2, label=f"{ticker2} (Normalized)")
-        
-        ax.set_title(f"5-Year Performance Comparison: {ticker1} vs {ticker2}", fontsize=16, fontweight='bold')
-        ax.set_ylabel("Normalized Adjusted Close (Starting at 100)", fontsize=12)
-        ax.set_xlabel("Date", fontsize=12)
-        ax.legend(fontsize=12)
-        ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        st.pyplot(fig)
-        
-        # Performance stats
-        st.subheader("Performance Summary")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Return", f"{norm_data1.iloc[-1]:.1f}%", f"{norm_data1.iloc[-1]:.1f}%")
-        with col2:
-            st.metric("Total Return", f"{norm_data2.iloc[-1]:.1f}%", f"{norm_data2.iloc[-1]:.1f}%")
-        with col3:
-            pct_change1 = ((norm_data1.iloc[-1] - 100) / 100) * 100
-            st.metric("Final Value", f"{norm_data1.iloc[-1]:.1f}", f"{pct_change1:.1f}%")
-        with col4:
-            pct_change2 = ((norm_data2.iloc[-1] - 100) / 100) * 100
-            st.metric("Final Value", f"{norm_data2.iloc[-1]:.1f}", f"{pct_change2:.1f}%")
+    # --- Download 5-year monthly data ---
+    data = yf.download(
+        tickers=tickers,
+        period="5y",          # last 5 years
+        interval="1mo",       # monthly data
+        auto_adjust=True,
+        progress=False
+    )  # MultiIndex columns if multiple tickers[web:11]
+
+    # Handle single vs multiple ticker column structure
+    if isinstance(data.columns, pd.MultiIndex):
+        px = data["Close"].copy()
     else:
-        st.warning("Please enter valid ticker symbols for both inputs to see the comparison chart.")
-else:
-    st.info("👆 Enter two valid ticker symbols (e.g., AAPL, MSFT, TSLA) to compare their performance.")
+        px = data[["Close"]].copy()
+        px.columns = tickers  # name the single column
+
+    # Drop rows with all NaNs
+    px = px.dropna(how="all")
+
+    # --- Normed returns (index starting at 1) ---
+    normed = px.div(px.iloc[0])  # divide each row by first row values[web:9]
+
+    st.subheader("Normed price series (start = 1.0)")
+    st.dataframe(normed.tail())
+
+    # --- Plot both tickers on same chart ---
+    st.subheader("Normed 5Y Monthly Performance")
+    st.line_chart(normed)  # each column is a separate line, index on x-axis[web:13]
